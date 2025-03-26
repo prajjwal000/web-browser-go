@@ -302,6 +302,7 @@ func (resp *Response) read(conn *net.Conn) error {
 	}
 	resp.Status = string(statusLine)
 
+	// Read headers
 	for {
 		line, _, err := buf.ReadLine()
 		if err != nil {
@@ -311,26 +312,78 @@ func (resp *Response) read(conn *net.Conn) error {
 			break
 		}
 		key, value, _ := strings.Cut(string(line), ": ")
-		resp.Headers[key] = strings.Trim(value, " ")
+		resp.Headers[key] = strings.TrimSpace(value)
 	}
 
-	content_length := 1000000
-	if resp.Headers["Content-Length"] != "" {
-		content_length, err = strconv.Atoi(resp.Headers["Content-Length"])
-	}
-	var body strings.Builder
-	for content_length > body.Len() {
-		byte, err := buf.ReadByte()
-		if err == io.EOF {
-			break
+	transferEncoding := strings.ToLower(resp.Headers["Transfer-Encoding"])
+	isChunked := transferEncoding == "chunked"
+
+	// Handle body
+	if isChunked {
+		var body strings.Builder
+		for {
+			chunkSizeLine, _, err := buf.ReadLine()
+			if err != nil {
+				return fmt.Errorf("failed to read chunk size: %w", err)
+			}
+
+			chunkSizeStr := strings.TrimSpace(string(chunkSizeLine))
+			chunkSize, err := strconv.ParseInt(chunkSizeStr, 16, 64)
+			if err != nil {
+				return fmt.Errorf("invalid chunk size: %w", err)
+			}
+
+			if chunkSize == 0 {
+				_, _, err = buf.ReadLine()
+				if err != nil {
+					return fmt.Errorf("failed to read final CRLF: %w", err)
+				}
+				break
+			}
+
+			chunkData := make([]byte, chunkSize)
+			_, err = io.ReadFull(buf, chunkData)
+			if err != nil {
+				return fmt.Errorf("failed to read chunk data: %w", err)
+			}
+			body.Write(chunkData)
+
+			_, _, err = buf.ReadLine()
+			if err != nil {
+				return fmt.Errorf("failed to read chunk CRLF: %w", err)
+			}
 		}
-		if err != nil {
-			return fmt.Errorf("failed to read body: %w", err)
+		resp.Body = body.String()
+	} else {
+		var body strings.Builder
+		hasContentLength := resp.Headers["Content-Length"] != ""
+
+		if hasContentLength {
+			// Read exactly Content-Length bytes
+			contentLength, err := strconv.Atoi(resp.Headers["Content-Length"])
+			if err != nil {
+				return fmt.Errorf("invalid Content-Length: %w", err)
+			}
+
+			bodyData := make([]byte, contentLength)
+			_, err = io.ReadFull(buf, bodyData)
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("failed to read body: %w", err)
+			}
+			body.Write(bodyData)
+		} else {
+			bodyData, err := io.ReadAll(buf)
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("failed to read body: %w", err)
+			}
+			body.Write(bodyData)
 		}
-		body.WriteByte(byte)
+		resp.Body = body.String()
 	}
-	if resp.Headers["Content-Encoding"] == "gzip" {
-		gzipReader, err := gzip.NewReader(strings.NewReader(body.String()))
+
+	// Handle gzip encoding
+	if resp.Headers["Content-Encoding"] == "gzip" || transferEncoding == "gzip" {
+		gzipReader, err := gzip.NewReader(strings.NewReader(resp.Body))
 		if err != nil {
 			return fmt.Errorf("failed to create gzip reader: %w", err)
 		}
@@ -340,10 +393,7 @@ func (resp *Response) read(conn *net.Conn) error {
 			return fmt.Errorf("failed to read gzip body: %w", err)
 		}
 		resp.Body = string(uncompressedBody)
-		return nil
 	}
-
-	resp.Body = body.String()
 
 	return nil
 }
