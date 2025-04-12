@@ -1,0 +1,40 @@
+# Go binary files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test binary
+*_test.go
+
+# Vendor directory
+/vendor/
+
+
+# Build artifacts
+/build/
+bin/
+out/
+
+# IDE and editor files
+*.idea/
+*.vscode/
+*.swp
+*.swo
+*.DS_Store
+
+# Coverage files
+*.out
+*.cov
+
+# Temporary files
+*.tmp
+*.temp
+
+# Logs
+*.log
+
+# Other files
+*.tgz
+*.zip
