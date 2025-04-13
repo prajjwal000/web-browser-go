@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	net "github.com/prajjwal000/web-browser-go/network"
+	neti "github.com/prajjwal000/web-browser-go/network"
 ) 
 
 func main() {
-	req, _ := net.Parse("http://www.example.com/lovely")
-	fmt.Print(req)
+	req, _ := neti.Parse("https://www.example.com/")
+	fmt.Print(req.Get())
 }
