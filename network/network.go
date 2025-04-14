@@ -11,21 +11,25 @@ import (
 	"strings"
 )
 
+type Header_map map[string]string
+
 type request struct {
-	Host   string
-	Scheme string
-	Port   int
-	Path   string
+	Host    string
+	Scheme  string
+	Headers Header_map
+	Port    int
+	Path    string
 }
 
 type response struct {
 	Status  string
-	Headers map[string]string
+	Headers Header_map
 	Body    string
 }
 
 func Parse(url string) (request, error) {
 	req := request{}
+	req.Headers = make(map[string]string)
 	var ok bool
 	var temp string
 	var err error
@@ -46,14 +50,21 @@ func Parse(url string) (request, error) {
 			req.Port = 443
 		}
 		req.Host, req.Path, _ = strings.Cut(req.Host, "/")
+		_, req.Host, _ = strings.Cut(req.Host, "www.")
 		req.Path = "/" + req.Path
+		req.Add_header("Host", req.Host)
+		req.Add_header("Connection", "close")
+		req.Add_header("User-Agent", "botted")
 		return req, nil
 	}
 
 	temp, req.Path, _ = strings.Cut(temp, "/")
-	_, req.Host, _ = strings.Cut(req.Host, "www.")
 	req.Port, err = strconv.Atoi(temp)
 	req.Path = "/" + req.Path
+	_, req.Host, _ = strings.Cut(req.Host, "www.")
+	req.Add_header("Host", req.Host)
+	req.Add_header("Connection", "close")
+	req.Add_header("User-Agent", "botted")
 
 	return req, err
 }
@@ -84,22 +95,39 @@ func (req request) Get() response {
 
 	buf := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 
-	buf.WriteString("GET " + req.Path + " HTTP/1.1\r\n" +
-		"Host: " + req.Host + "\r\n" +
-		"Connection: close\r\n\r\n")
+	buf.WriteString(req.http_raw())
 	buf.Flush()
+
+	resp.read(buf)
+
+	return resp
+}
+
+func (req *request) Add_header(field, value string) {
+	req.Headers[field] = value
+}
+
+func (req request) http_raw() string {
+	var ret strings.Builder
+	ret.WriteString("GET " + req.Path + " HTTP/1.1\r\n")
+	for k, v := range req.Headers {
+		ret.WriteString(k + ": " + v + "\r\n")
+	}
+	ret.WriteString("\r\n")
+	return ret.String()
+}
+
+func (resp *response) read(buf *bufio.ReadWriter) {
 
 	statusLine, _, err := buf.ReadLine()
 	if err != nil {
 		log.Println(err)
-		return resp
 	}
 	resp.Status = string(statusLine)
 	for {
 		line, _, err := buf.ReadLine()
 		if err != nil {
 			log.Println(err)
-			return resp
 		}
 		if len(line) == 0 {
 			break
@@ -116,7 +144,6 @@ func (req request) Get() response {
 		}
 		if err != nil {
 			log.Println(err)
-			return resp
 		}
 		body.Write(line)
 		body.WriteString("\n")
@@ -124,5 +151,4 @@ func (req request) Get() response {
 
 	resp.Body = body.String()
 
-	return resp
 }
