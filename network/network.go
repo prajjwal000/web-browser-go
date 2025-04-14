@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -38,8 +39,12 @@ func Parse(url string) (request, error) {
 	if !ok {
 		return req, errors.New("Error: Invalid Url")
 	}
-	if req.Scheme != "http" && req.Scheme != "https" {
+	if req.Scheme != "http" && req.Scheme != "https" && req.Scheme != "file"{
 		return req, errors.New("Error: Unknown Scheme")
+	}
+
+	if req.Scheme == "file" {
+		return req, nil
 	}
 
 	req.Host, temp, ok = strings.Cut(req.Host, ":")
@@ -91,6 +96,24 @@ func (req request) Get() response {
 			return resp
 		}
 		defer conn.Close()
+	}
+
+	if req.Scheme == "file" {
+		file, err := os.Open(req.Host)
+		if err != nil {
+			log.Println(err)
+			return resp
+		}
+		defer file.Close()
+
+		content, err := io.ReadAll(file)
+		if err != nil {
+			log.Println(err)
+			return resp
+		}
+		resp.Status = "HTTP/1.1 200 OK"
+		resp.Body = string(content)
+		return resp
 	}
 
 	buf := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))

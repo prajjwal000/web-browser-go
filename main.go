@@ -2,11 +2,22 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	neti "github.com/prajjwal000/web-browser-go/network"
 )
 
 func main() {
-	req, _ := neti.Parse("https://www.example.com/")
+	url := "file://test.html" // Default URL
+	if len(os.Args) > 1 {
+		url = os.Args[1]
+	}
+
+	req, err := neti.Parse(url)
+	if err != nil {
+		fmt.Printf("Error parsing URL: %v\n", err)
+		return
+	}
+
 	fmt.Print(req.Get())
 }
