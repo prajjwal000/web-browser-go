@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	url := "file://test.html" 
+	url := "file://test.html"
 	if len(os.Args) > 1 {
 		url = os.Args[1]
 	}

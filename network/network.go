@@ -23,6 +23,7 @@ type Request struct {
 }
 
 type Response struct {
+	Scheme  string
 	Status  string
 	Headers Header_map
 	Body    string
@@ -44,7 +45,7 @@ func Parse(url string) (Request, error) {
 			return req, errors.New("Error: data scheme invalid url")
 		}
 	}
-	if req.Scheme != "http" && req.Scheme != "https" && req.Scheme != "file" {
+	if req.Scheme != "http" && req.Scheme != "https" && req.Scheme != "file" && req.Scheme != "view-source" {
 		return req, errors.New("Error: Unknown Scheme")
 	}
 
@@ -84,7 +85,17 @@ func (req Request) Get() (Response, error) {
 	resp.Headers = make(map[string]string)
 	var conn net.Conn
 	var err error
+
+	if req.Scheme == "view-source" {
+		temp_req := req
+		temp_req.Scheme = "https"
+		temp_resp, err := temp_req.Get()
+		temp_resp.Scheme = "view-source"
+		return temp_resp, err
+	}
+
 	if req.Scheme == "https" {
+		resp.Scheme = "https"
 		conf := &tls.Config{}
 		conn, err = tls.Dial("tcp", req.Host+":"+strconv.Itoa(req.Port), conf)
 		if err != nil {
@@ -95,6 +106,7 @@ func (req Request) Get() (Response, error) {
 	}
 
 	if req.Scheme == "http" {
+		resp.Scheme = "http"
 		conn, err = net.Dial("tcp", req.Host+":"+strconv.Itoa(req.Port))
 		if err != nil {
 			log.Println(err)
@@ -104,6 +116,7 @@ func (req Request) Get() (Response, error) {
 	}
 
 	if req.Scheme == "file" {
+		resp.Scheme = "file"
 		file, err := os.Open(req.Host)
 		if err != nil {
 			log.Println(err)
@@ -122,6 +135,7 @@ func (req Request) Get() (Response, error) {
 	}
 
 	if req.Scheme == "data" {
+		resp.Scheme = "data"
 		resp.Status = "HTTP/1.1 200 OK"
 		resp.Add_header("Content-Type", req.Host)
 		resp.Body = req.Path

@@ -8,6 +8,10 @@ import (
 )
 
 func Render(resp neti.Response) {
+	if resp.Scheme == "view-source" {
+		fmt.Print(resp.Body)
+		return
+	}
 	in_tag := false
 	var builder strings.Builder
 	for _, char := range resp.Body {
