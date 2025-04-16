@@ -5,10 +5,11 @@ import (
 	"os"
 
 	neti "github.com/prajjwal000/web-browser-go/network"
+	render "github.com/prajjwal000/web-browser-go/render"
 )
 
 func main() {
-	url := "file://test.html" // Default URL
+	url := "file://test.html" 
 	if len(os.Args) > 1 {
 		url = os.Args[1]
 	}
@@ -19,5 +20,11 @@ func main() {
 		return
 	}
 
-	fmt.Print(req.Get())
+	resp, err := req.Get()
+	if err != nil {
+		fmt.Print(err)
+		return
+	}
+
+	render.Render(resp)
 }

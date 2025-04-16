@@ -14,7 +14,7 @@ import (
 
 type Header_map map[string]string
 
-type request struct {
+type Request struct {
 	Host    string
 	Scheme  string
 	Headers Header_map
@@ -22,14 +22,14 @@ type request struct {
 	Path    string
 }
 
-type response struct {
+type Response struct {
 	Status  string
 	Headers Header_map
 	Body    string
 }
 
-func Parse(url string) (request, error) {
-	req := request{}
+func Parse(url string) (Request, error) {
+	req := Request{}
 	req.Headers = make(map[string]string)
 	var ok bool
 	var temp string
@@ -37,9 +37,14 @@ func Parse(url string) (request, error) {
 
 	req.Scheme, req.Host, ok = strings.Cut(url, "://")
 	if !ok {
-		return req, errors.New("Error: Invalid Url")
+		if req.Scheme, req.Host, ok = strings.Cut(url, ":"); ok && req.Scheme == "data" {
+			if req.Host, req.Path, ok = strings.Cut(req.Host, ","); ok {
+				return req, nil
+			}
+			return req, errors.New("Error: data scheme invalid url")
+		}
 	}
-	if req.Scheme != "http" && req.Scheme != "https" && req.Scheme != "file"{
+	if req.Scheme != "http" && req.Scheme != "https" && req.Scheme != "file" {
 		return req, errors.New("Error: Unknown Scheme")
 	}
 
@@ -74,8 +79,8 @@ func Parse(url string) (request, error) {
 	return req, err
 }
 
-func (req request) Get() response {
-	resp := response{}
+func (req Request) Get() (Response, error) {
+	resp := Response{}
 	resp.Headers = make(map[string]string)
 	var conn net.Conn
 	var err error
@@ -84,7 +89,7 @@ func (req request) Get() response {
 		conn, err = tls.Dial("tcp", req.Host+":"+strconv.Itoa(req.Port), conf)
 		if err != nil {
 			log.Println(err)
-			return resp
+			return resp, err
 		}
 		defer conn.Close()
 	}
@@ -93,7 +98,7 @@ func (req request) Get() response {
 		conn, err = net.Dial("tcp", req.Host+":"+strconv.Itoa(req.Port))
 		if err != nil {
 			log.Println(err)
-			return resp
+			return resp, err
 		}
 		defer conn.Close()
 	}
@@ -102,18 +107,25 @@ func (req request) Get() response {
 		file, err := os.Open(req.Host)
 		if err != nil {
 			log.Println(err)
-			return resp
+			return resp, err
 		}
 		defer file.Close()
 
 		content, err := io.ReadAll(file)
 		if err != nil {
 			log.Println(err)
-			return resp
+			return resp, err
 		}
 		resp.Status = "HTTP/1.1 200 OK"
 		resp.Body = string(content)
-		return resp
+		return resp, nil
+	}
+
+	if req.Scheme == "data" {
+		resp.Status = "HTTP/1.1 200 OK"
+		resp.Add_header("Content-Type", req.Host)
+		resp.Body = req.Path
+		return resp, nil
 	}
 
 	buf := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
@@ -123,14 +135,21 @@ func (req request) Get() response {
 
 	resp.read(buf)
 
-	return resp
+	return resp, nil
 }
 
-func (req *request) Add_header(field, value string) {
-	req.Headers[field] = value
+func (req *Request) Add_header(field, value string) {
+	if field != "" && value != "" {
+		req.Headers[field] = value
+	}
+}
+func (resp *Response) Add_header(field, value string) {
+	if field != "" && value != "" {
+		resp.Headers[field] = value
+	}
 }
 
-func (req request) http_raw() string {
+func (req Request) http_raw() string {
 	var ret strings.Builder
 	ret.WriteString("GET " + req.Path + " HTTP/1.1\r\n")
 	for k, v := range req.Headers {
@@ -140,7 +159,7 @@ func (req request) http_raw() string {
 	return ret.String()
 }
 
-func (resp *response) read(buf *bufio.ReadWriter) {
+func (resp *Response) read(buf *bufio.ReadWriter) {
 
 	statusLine, _, err := buf.ReadLine()
 	if err != nil {
