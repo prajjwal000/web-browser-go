@@ -8,6 +8,9 @@
 # Go test binary
 *_test.go
 
+# Certificates
+*.pem
+
 # Vendor directory
 /vendor/
 
