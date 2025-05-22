@@ -4,27 +4,52 @@ import (
 	"fmt"
 	"strings"
 
-	neti "github.com/prajjwal000/web-browser-go/network"
+	"github.com/prajjwal000/web-browser-go/network"
 )
 
-func Render(resp neti.Response) {
+func Render(resp network.Response) {
 	if resp.Scheme == "view-source" {
 		fmt.Print(resp.Body)
 		return
 	}
-	in_tag := false
+
+	content := stripHTML(resp.Body)
+	content = decodeHTMLEntities(content)
+	fmt.Print(content)
+}
+
+func stripHTML(content string) string {
 	var builder strings.Builder
-	for _, char := range resp.Body {
-		if char == '<' {
-			in_tag = true
-		} else if char == '>' {
-			in_tag = false
-		} else if in_tag == false {
-			builder.WriteRune(char)
+	inTag := false
+
+	for _, char := range content {
+		switch char {
+		case '<':
+			inTag = true
+		case '>':
+			inTag = false
+		default:
+			if !inTag {
+				builder.WriteRune(char)
+			}
 		}
 	}
-	data := builder.String()
-	data = strings.ReplaceAll(data, "&lt", "<")
-	data = strings.ReplaceAll(data, "&gt", ">")
-	fmt.Print(data)
+
+	return builder.String()
+}
+
+func decodeHTMLEntities(content string) string {
+	replacements := map[string]string{
+		"&lt;":   "<",
+		"&gt;":   ">",
+		"&amp;":  "&",
+		"&quot;": "\"",
+		"&apos;": "'",
+	}
+
+	for entity, char := range replacements {
+		content = strings.ReplaceAll(content, entity, char)
+	}
+
+	return content
 }
