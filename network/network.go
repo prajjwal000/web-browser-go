@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"slices"
@@ -17,12 +16,13 @@ import (
 type HeaderMap map[string]string
 
 type Request struct {
-	Host    string
-	Scheme  string
-	Headers HeaderMap
-	Port    int
-	Path    string
-	Conn    *net.Conn
+	Host     string
+	Scheme   string
+	Headers  HeaderMap
+	Port     int
+	Path     string
+	Conn     *net.Conn
+	Redirect int
 }
 
 type Response struct {
@@ -125,7 +125,6 @@ func (req Request) getNet() (Response, error) {
 
 	if req.Conn != nil {
 		conn = req.Conn
-		log.Println("CONN REUSED")
 	} else {
 		conn, err = dial(req.Scheme, addr)
 		if err != nil {
@@ -134,13 +133,42 @@ func (req Request) getNet() (Response, error) {
 	}
 	req.Conn = conn
 
-	if err := req.writeRequest(conn); err != nil {
+	if err := req.write(conn); err != nil {
 		return resp, fmt.Errorf("failed to write request: %w", err)
 	}
 
 	if err := resp.read(conn); err != nil {
 		return resp, fmt.Errorf("failed to read response: %w", err)
 	}
+
+	location := resp.Headers["Location"]
+	if location != "" {
+		if req.Redirect >= 5 {
+			return resp, fmt.Errorf("too many redirects")
+		}
+		req.Redirect++
+		fmt.Println("Redirecting to:", location)
+
+		if location[0] == '/' {
+			req.Path = location
+			return req.getNet()
+		}
+
+		newReq, err := Parse(location)
+		if err != nil {
+			return resp, fmt.Errorf("failed to parse redirect URL: %w", err)
+		}
+		if newReq.Host != "" && newReq.Host != req.Host && newReq.Port != req.Port {
+			newReq.Redirect = req.Redirect
+			return newReq.Get()
+		}
+
+		req.Path = newReq.Path
+
+		return req.getNet()
+	}
+
+	req.Redirect = 0
 
 	return resp, nil
 }
@@ -156,14 +184,6 @@ func dial(scheme, addr string) (*net.Conn, error) {
 	}
 	conn, err := (&net.Dialer{}).Dial("tcp", addr)
 	return &conn, err
-}
-
-func (req Request) writeRequest(conn *net.Conn) error {
-	buf := bufio.NewWriter(*conn)
-	if _, err := buf.WriteString(req.httpRaw()); err != nil {
-		return err
-	}
-	return buf.Flush()
 }
 
 func (req Request) getFile() (Response, error) {
@@ -220,6 +240,14 @@ func (req Request) httpRaw() string {
 	return ret.String()
 }
 
+func (req Request) write(conn *net.Conn) error {
+	buf := bufio.NewWriter(*conn)
+	if _, err := buf.WriteString(req.httpRaw()); err != nil {
+		return err
+	}
+	return buf.Flush()
+}
+
 func (resp *Response) read(conn *net.Conn) error {
 	buf := bufio.NewReader(*conn)
 	statusLine, _, err := buf.ReadLine()
@@ -237,7 +265,7 @@ func (resp *Response) read(conn *net.Conn) error {
 			break
 		}
 		key, value, _ := strings.Cut(string(line), ": ")
-		resp.Headers[key] = value
+		resp.Headers[key] = strings.Trim(value, " ")
 	}
 
 	content_length := 1000000

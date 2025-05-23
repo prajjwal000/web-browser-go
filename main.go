@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/prajjwal000/web-browser-go/network"
 	"github.com/prajjwal000/web-browser-go/render"
@@ -24,17 +23,8 @@ func main() {
 	resp, err := req.Get()
 	if err != nil {
 		fmt.Printf("Error making request: %v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	render.Render(resp)
-
-	resp2, err := req.Get()
-	if err != nil {
-		fmt.Printf("Error making request: %v\n", err)
-		os.Exit(10)
-	}
-
-	render.Render(resp2)
-
 }
