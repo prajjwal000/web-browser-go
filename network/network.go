@@ -20,6 +20,7 @@ type Request struct {
 	Scheme   string
 	Headers  HeaderMap
 	Port     int
+	Method   string
 	Path     string
 	Conn     *net.Conn
 	Redirect int
@@ -79,6 +80,7 @@ func Parse(url string) (Request, error) {
 		req.Path = "/" + req.Path
 	}
 
+	req.Method = "GET"
 	req.Headers["Host"] = req.Host
 	req.Headers["Connection"] = "keep-alive"
 	req.Headers["User-Agent"] = "web-browser-go"
@@ -221,7 +223,7 @@ func (req Request) getData() (Response, error) {
 
 func (req Request) httpRaw() string {
 	var ret strings.Builder
-	ret.WriteString("GET " + req.Path + " HTTP/1.1\r\n")
+	ret.WriteString(req.Method + " " + req.Path + " HTTP/1.1\r\n")
 
 	headers := []string{"Host", "User-Agent", "Connection"}
 	for _, header := range headers {
