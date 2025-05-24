@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"slices"
@@ -88,25 +89,25 @@ func Parse(url string) (Request, error) {
 	return req, nil
 }
 
-func (req Request) Get() (Response, error) {
+func (req Request) Send() (Response, error) {
 	switch req.Scheme {
 	case "view-source":
-		return req.getViewSource()
+		return req.sendViewSource()
 	case "http", "https":
-		return req.getNet()
+		return req.sendNet()
 	case "file":
-		return req.getFile()
+		return req.sendFile()
 	case "data":
-		return req.getData()
+		return req.sendData()
 	default:
 		return Response{}, fmt.Errorf("unsupported scheme: %s", req.Scheme)
 	}
 }
 
-func (req Request) getViewSource() (Response, error) {
+func (req Request) sendViewSource() (Response, error) {
 	tempReq := req
 	tempReq.Scheme = "https"
-	resp, err := tempReq.Get()
+	resp, err := tempReq.Send()
 	if err != nil {
 		return Response{}, err
 	}
@@ -114,7 +115,7 @@ func (req Request) getViewSource() (Response, error) {
 	return resp, nil
 }
 
-func (req Request) getNet() (Response, error) {
+func (req Request) sendNet() (Response, error) {
 	resp := Response{
 		Headers: make(HeaderMap),
 		Scheme:  req.Scheme,
@@ -145,34 +146,39 @@ func (req Request) getNet() (Response, error) {
 
 	location := resp.Headers["Location"]
 	if location != "" {
-		if req.Redirect >= 5 {
-			return resp, fmt.Errorf("too many redirects")
-		}
-		req.Redirect++
-		fmt.Println("Redirecting to:", location)
-
-		if location[0] == '/' {
-			req.Path = location
-			return req.getNet()
-		}
-
-		newReq, err := Parse(location)
-		if err != nil {
-			return resp, fmt.Errorf("failed to parse redirect URL: %w", err)
-		}
-		if newReq.Host != "" && newReq.Host != req.Host && newReq.Port != req.Port {
-			newReq.Redirect = req.Redirect
-			return newReq.Get()
-		}
-
-		req.Path = newReq.Path
-
-		return req.getNet()
+		return req.handleRedirect(resp, location)
 	}
 
 	req.Redirect = 0
 
 	return resp, nil
+}
+
+func (req Request) handleRedirect(resp Response, location string) (Response, error) {
+	if req.Redirect >= 5 {
+		return resp, fmt.Errorf("too many redirects")
+	}
+	req.Redirect++
+	log.Println("Redirecting to:", location)
+
+	if location[0] == '/' {
+		req.Path = location
+		return req.sendNet()
+	}
+
+	newReq, err := Parse(location)
+	if err != nil {
+		return resp, fmt.Errorf("failed to parse redirect URL: %w", err)
+	}
+	if newReq.Host != "" && newReq.Host != req.Host && newReq.Port != req.Port {
+		newReq.Redirect = req.Redirect
+		req = newReq
+		return req.Send()
+	}
+
+	req.Path = newReq.Path
+
+	return req.sendNet()
 }
 
 func dial(scheme, addr string) (*net.Conn, error) {
@@ -188,7 +194,7 @@ func dial(scheme, addr string) (*net.Conn, error) {
 	return &conn, err
 }
 
-func (req Request) getFile() (Response, error) {
+func (req Request) sendFile() (Response, error) {
 	resp := Response{
 		Headers: make(HeaderMap),
 		Scheme:  req.Scheme,
@@ -210,7 +216,7 @@ func (req Request) getFile() (Response, error) {
 	return resp, nil
 }
 
-func (req Request) getData() (Response, error) {
+func (req Request) sendData() (Response, error) {
 	resp := Response{
 		Headers: make(HeaderMap),
 		Scheme:  req.Scheme,

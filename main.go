@@ -20,7 +20,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	resp, err := req.Get()
+	resp, err := req.Send()
 	if err != nil {
 		fmt.Printf("Error making request: %v\n", err)
 		os.Exit(2)
