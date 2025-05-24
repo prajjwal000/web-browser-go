@@ -12,19 +12,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type HeaderMap map[string]string
 
 type Request struct {
-	Host     string
-	Scheme   string
-	Headers  HeaderMap
-	Port     int
-	Method   string
-	Path     string
-	Conn     *net.Conn
-	Redirect int
+	Host          string
+	Scheme        string
+	Headers       HeaderMap
+	Port          int
+	Method        string
+	Path          string
+	Conn          *net.Conn
+	ResponseCache ResponseCache
+	Redirect      int
 }
 
 type Response struct {
@@ -89,7 +91,7 @@ func Parse(url string) (Request, error) {
 	return req, nil
 }
 
-func (req Request) Send() (Response, error) {
+func (req *Request) Send() (Response, error) {
 	switch req.Scheme {
 	case "view-source":
 		return req.sendViewSource()
@@ -104,7 +106,7 @@ func (req Request) Send() (Response, error) {
 	}
 }
 
-func (req Request) sendViewSource() (Response, error) {
+func (req *Request) sendViewSource() (Response, error) {
 	tempReq := req
 	tempReq.Scheme = "https"
 	resp, err := tempReq.Send()
@@ -115,7 +117,13 @@ func (req Request) sendViewSource() (Response, error) {
 	return resp, nil
 }
 
-func (req Request) sendNet() (Response, error) {
+func (req *Request) sendNet() (Response, error) {
+
+	if req.ResponseCache.TimeToLive[req.Path] > time.Now().Unix() {
+		log.Println("Cache hit for:", req.Path)
+		return req.ResponseCache.Cache[req.Path], nil
+	}
+
 	resp := Response{
 		Headers: make(HeaderMap),
 		Scheme:  req.Scheme,
@@ -151,10 +159,29 @@ func (req Request) sendNet() (Response, error) {
 
 	req.Redirect = 0
 
+	if resp.Headers["Cache-Control"] != "" {
+		cacheControl := resp.Headers["Cache-Control"]
+		if strings.Contains(cacheControl, "no-cache") || strings.Contains(cacheControl, "no-store") {
+			log.Println("Response is not cacheable due to Cache-Control header")
+			return resp, nil
+		}
+		var maxAge int64 = 0
+		if strings.Contains(cacheControl, "max-age") {
+			maxAgeStr := strings.Split(cacheControl, "max-age=")[1]
+			maxAgeStr = strings.Split(maxAgeStr, ",")[0]
+			maxAge, err = strconv.ParseInt(maxAgeStr, 10, 64)
+			if err != nil {
+				return resp, fmt.Errorf("invalid max-age in Cache-Control header: %w", err)
+			}
+			req.CacheResponse(resp, maxAge)
+			log.Println("Response cached for", maxAge, "seconds")
+		}
+	}
+
 	return resp, nil
 }
 
-func (req Request) handleRedirect(resp Response, location string) (Response, error) {
+func (req *Request) handleRedirect(resp Response, location string) (Response, error) {
 	if req.Redirect >= 5 {
 		return resp, fmt.Errorf("too many redirects")
 	}
@@ -171,8 +198,17 @@ func (req Request) handleRedirect(resp Response, location string) (Response, err
 		return resp, fmt.Errorf("failed to parse redirect URL: %w", err)
 	}
 	if newReq.Host != "" && newReq.Host != req.Host && newReq.Port != req.Port {
-		newReq.Redirect = req.Redirect
-		req = newReq
+		req.Host = newReq.Host
+		req.Port = newReq.Port
+		req.Scheme = newReq.Scheme
+		req.Headers = newReq.Headers
+		req.Method = newReq.Method
+		req.Conn = newReq.Conn
+		req.Path = newReq.Path
+		req.ResponseCache = newReq.ResponseCache
+		req.Headers["Host"] = req.Host
+		req.Headers["Connection"] = "keep-alive"
+		req.Headers["User-Agent"] = "web-browser-go"
 		return req.Send()
 	}
 
@@ -216,7 +252,7 @@ func (req Request) sendFile() (Response, error) {
 	return resp, nil
 }
 
-func (req Request) sendData() (Response, error) {
+func (req *Request) sendData() (Response, error) {
 	resp := Response{
 		Headers: make(HeaderMap),
 		Scheme:  req.Scheme,
