@@ -2,6 +2,7 @@ package network
 
 import (
 	"bufio"
+	"compress/gzip"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -87,6 +88,7 @@ func Parse(url string) (Request, error) {
 	req.Headers["Host"] = req.Host
 	req.Headers["Connection"] = "keep-alive"
 	req.Headers["User-Agent"] = "web-browser-go"
+	req.Headers["Accept-Encoding"] = "gzip"
 
 	return req, nil
 }
@@ -327,7 +329,22 @@ func (resp *Response) read(conn *net.Conn) error {
 		}
 		body.WriteByte(byte)
 	}
+	if resp.Headers["Content-Encoding"] == "gzip" {
+		gzipReader, err := gzip.NewReader(strings.NewReader(body.String()))
+		if err != nil {
+			return fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer gzipReader.Close()
+		uncompressedBody, err := io.ReadAll(gzipReader)
+		if err != nil {
+			return fmt.Errorf("failed to read gzip body: %w", err)
+		}
+		resp.Body = string(uncompressedBody)
+		return nil
+	}
+
 	resp.Body = body.String()
+
 	return nil
 }
 
